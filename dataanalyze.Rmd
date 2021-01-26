@@ -1,0 +1,269 @@
+---
+title: "Earthquake research"
+author: "Yufei xia"
+date: "2020/10/2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+
+
+```{r}
+library(R.matlab)
+library(caret)
+library(e1071)
+library(MASS)
+library("RColorBrewer")
+library(base)
+
+```
+
+```{r}
+dateset <- readMat("EarlyWarning_Iwanuma_rev.mat")
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+#deal with the response variable.
+str(dateset)
+dim(dateset$TL1.HS)
+
+#we might need multinomial distribution
+loss = dateset$TL1.HS
+dim(loss) = c(4000,1)
+lon = dateset$SCENARIO[,2,]
+dim(lon) = c(4000,1)
+lat = dateset$SCENARIO[,3,]
+dim(lat) = c(4000,1)
+mag = dateset$SCENARIO[,1,]
+dim(mag) = c(4000,1)
+mag_level = rep(1:8,each = 500)
+color = rev(brewer.pal(n = 8, name = "Spectral"))
+plot(lon,loss)
+text(lon,loss,labels = mag_level,col = color[mag_level])
+plot(lat,loss)
+text(lat,loss,labels = mag_level,col = color[mag_level])
+
+
+
+
+
+
+
+
+
+```
+```{r}
+#set threshold
+#under the threshold of 50
+threshold = 20
+df = data.frame(loss)
+df$category = cut(df$loss,breaks =c(-Inf, threshold, Inf),labels = c(0,1))
+df$lon = lon
+df$lat = lat 
+df$mag = mag
+
+str(df)
+
+
+
+#try to fit the logistic regression interm of longituted 
+#the lat vs loss and the long vs loss
+
+
+
+```
+```{r}
+#fitting the logsitic regression in term of the scale of loss with magnitude, longitude and latitude.
+log_model = glm(category~.-loss,df,family = "binomial")
+summary(log_model)
+#all variables are significant  
+#using deviance test
+drop1(log_model,test="Chi")
+#all three variable is significant 
+predicted = predict(log_model,type = "response")
+cate_predicted = cut(predicted, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+confusionMatrix(cate_predicted,df$category)
+
+
+
+#SVM
+  
+
+#RF
+
+
+```
+```{r}
+dim(dateset$WHL1[1:time,i,,])
+apply(dateset$WHL1[1:time,i,,],c(2,3),function(x) max(x))
+```
+
+divide the dataset into training or test set 
+```{r}
+
+
+#we select the time = 60
+time = 20
+coln = c()
+set = (1:nrow(dateset$PntInfo))[dateset$PntInfo[,9]==3] 
+for(i in set){
+     observ_i = paste("observ",i,sep = "_")
+     coln = c(coln, observ_i)
+     color = brewer.pal(n = 8, name = "Spectral")
+     plot(1:time,apply(dateset$WHL1[1:time,i,,8],1,function(x) mean(x)),xlab = "1 to 120 minutes",ylab = "the average wave height minutely",main  = observ_i,type = "l",col = color[1],ylim =range(-2,3))
+     for (j in 7:1){
+     lines(1:time,apply(dateset$WHL1[1:time,i,,j],1,function(x) mean(x)),col = color[9-j])
+     }
+     legend(1, 2.5, legend=c("8", "7","6","5","4","3","2","1"),
+       col=color,lty = 1 ,cex=0.5)
+     #text(coords, labels = c(8,7,6,5,4,3,2,1))
+   
+
+     matrix = apply(dateset$WHL1[1:time,i,,],c(2,3),function(x) max(x))
+     dim(matrix) = c(4000,1)
+     observ_i = matrix
+     df = cbind(df, observ_i)
+     
+}
+
+
+colnames(df)[6:98] = c(coln)
+
+
+df = df[,-1]
+
+```
+
+```{r}
+
+#train test split 
+#remove first column
+df 
+set.seed(123)
+sample_size = floor(0.8*nrow(df))
+sample_inx = sample(1:nrow(df),size =sample_size,replace = FALSE)
+
+train_sample = df[sample_inx,]
+test_sample =df[-sample_inx,]
+
+
+# Set seed for reproducibility
+biggest = formula(glm(category~.,data = train_sample,family = binomial))
+null_model=glm(category~lon+lat+mag,data= train_sample,family=binomial)
+step_model = stepAIC(null_model, direction ="forward",scope = biggest,steps = 3)    
+
+
+
+
+
+#lasso model
+#how to select the variable until three
+
+
+
+
+```
+
+
+```{r}
+
+#fitting model with test data 
+obs_point1 = names(step_model$model)[5]
+obs_point2 = names(step_model$model)[6]
+obs_point3 = names(step_model$model)[7]
+formula1 = toString(paste("category~lon+lat+mag+", obs_point1))
+formula2 = toString(paste("category~lon+lat+mag+", obs_point1,"+",obs_point2))
+formula3 = toString(paste("category~lon+lat+mag+", obs_point1,"+",obs_point2,"+",obs_point3))
+#test_model = glm(category~lon+lat+mag+obs_point1, data = test_sample,family = binomial)
+origlnal_model = glm("category~lon+lat+mag",data = test_sample,family = binomial)
+
+
+test_model = glm(formula1, data = test_sample,family = binomial)
+test_model2 = glm(formula2, data = test_sample,family = binomial)
+test_model3 = glm(formula3, data = test_sample,family = binomial)
+
+
+#the accruacy and precision of test data.
+predicted = predict(test_model,type = "response")
+cate_predicted = cut(predicted, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+true = test_sample$category
+conf1 = confusionMatrix(cate_predicted,true)
+
+
+
+predicted2 = predict(test_model2,type = "response")
+cate_predicted2 = cut(predicted2, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+true = test_sample$category
+conf2 = confusionMatrix(cate_predicted2,true)
+
+
+predicted3 = predict(test_model3,type = "response")
+cate_predicted3 = cut(predicted3, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+true = test_sample$category
+conf3 = confusionMatrix(cate_predicted3,true)
+
+
+ s1 = unlist(strsplit(obs_point1, split='_', fixed=TRUE))[2]
+ colname = c()
+ 
+#anova test 
+test1 = anova(origlnal_model,test_model)
+if((1-pchisq(test1$Deviance[2],test1$Df[2]))<0.05){
+  s1 = unlist(strsplit(obs_point1, split='_', fixed=TRUE))[2]
+  accu = conf1$byClass[11]
+  sens = conf1$byClass[1]
+  spec = conf1$byClass[2]
+  datamessage1 = c(dateset$PntInfo[strtoi(s1),],accu,sens,spec)
+  observations = data.frame(obs_point1 = datamessage1)
+  colname=c(colname,obs_point1)
+  
+  
+}
+test2 = anova(test_model,test_model2)
+if((1-pchisq(test2$Deviance[2],test2$Df[2]))<0.05){
+  s2 = unlist(strsplit(obs_point2, split='_', fixed=TRUE))[2]
+  accu = conf2$byClass[11]
+  sens = conf2$byClass[1]
+  spec = conf2$byClass[2]
+  datamessage2 = c(dateset$PntInfo[strtoi(s2),],accu,sens,spec)
+  
+  observations$obs_point2 =datamessage2
+  colname=c(colname,obs_point2)
+  
+  
+}
+
+test3 = anova(test_model2,test_model3)
+if((1-pchisq(test3$Deviance[2],test3$Df[2]))<0.05){
+  accu = conf3$byClass[11]
+  sens = conf3$byClass[1]
+  spec = conf3$byClass[2]
+  s3 = unlist(strsplit(obs_point3, split='_', fixed=TRUE))[3]
+  datamessage3 = c(dateset$PntInfo[strtoi(s3),],accu,sens,spec)
+  observations$obs_point3 =datamessage3
+  colname=c(colname,obs_point3)
+  
+}
+
+
+
+colnames(observations) <- colname
+
+
+#threshold function form time visualization aic 
+#function 
+
+```
+

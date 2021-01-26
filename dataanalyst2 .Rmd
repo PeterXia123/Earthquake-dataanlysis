@@ -1,0 +1,542 @@
+---
+title: "Untitled"
+author: "Yufei xia"
+date: "2020/10/23"
+output: pdf_document
+---
+
+---
+title: "Earthquake research"
+author: "Yufei xia"
+date: "2020/10/2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)  # ggplot() fortify()
+library(dplyr)  # %>% select() filter() bind_rows()
+library(rgdal)  # readOGR() spTransform()
+library(raster)  # intersect()
+library(ggsn)  # north2() scalebar()
+library(rworldmap)  # getMap()
+```
+
+
+
+```{r}
+library(R.matlab)
+library(caret)
+library(e1071)
+library(MASS)
+library("RColorBrewer")
+library(base)
+
+```
+
+```{r}
+dateset <- readMat("EarlyWarning_Iwanuma_rev.mat")
+
+```
+
+```{r}
+result = list()
+```
+
+
+# containing the details of employees 
+# which can be done using a list command 
+empList = list(empId, empName, numberOfEmp) 
+  
+```{r}
+shit = list()
+for(i in 5){
+df = find_observations(100,5*i)
+shit[i] =df
+}
+```
+
+```{r}
+work =  find_observations(100,5)
+```
+
+
+```{r}
+#deal with the response variable.
+find_observations = function(threshold, time){
+
+
+#we might need multinomial distribution
+loss = dateset$TL1.HS
+dim(loss) = c(4000,1)
+lon = dateset$SCENARIO[,2,]
+dim(lon) = c(4000,1)
+lat = dateset$SCENARIO[,3,]
+dim(lat) = c(4000,1)
+mag = dateset$SCENARIO[,1,]
+dim(mag) = c(4000,1)
+mag_level = rep(1:8,each = 500)
+
+
+
+
+#set threshold
+#under the threshold of 50
+df = data.frame(loss)
+df$category = cut(df$loss,breaks =c(-Inf, threshold, Inf),labels = c(0,1))
+df$lon = lon
+df$lat = lat 
+df$mag = mag
+
+
+
+
+#try to fit the logistic regression interm of longituted 
+#the lat vs loss and the long vs loss
+
+
+
+
+
+#train test split.
+#we select the time = 60
+
+
+coln = c()
+set = (1:nrow(dateset$PntInfo))[dateset$PntInfo[,9]==3] 
+for(i in set){
+     observ_i = paste("observ",i,sep = "_")
+     coln = c(coln, observ_i)
+     matrix = apply(dateset$WHL1[1:time,i,,],c(2,3),function(x) max(x))
+     dim(matrix) = c(4000,1)
+     observ_i = matrix
+     df = cbind(df, observ_i)
+     
+}
+
+
+colnames(df)[6:98] = c(coln)
+
+
+newdf = df[,-1]
+
+
+
+
+set.seed(123)
+sample_size = floor(0.8*nrow(newdf))
+sample_inx = sample(1:nrow(newdf),size =sample_size,replace = FALSE)
+
+train_sample = newdf[sample_inx,]
+test_sample =newdf[-sample_inx,]
+
+
+# Set seed for reproducibility
+biggest = formula(glm(category~.,data = train_sample,family = binomial))
+null_model=glm(category~lon+lat+mag,data= train_sample,family=binomial)
+step_model = stepAIC(null_model, direction ="forward",scope = biggest,steps = 3)    
+
+
+#fitting model with test data 
+obs_point1 = names(step_model$model)[5]
+obs_point2 = names(step_model$model)[6]
+obs_point3 = names(step_model$model)[7]
+formula1 = toString(paste("category~lon+lat+mag+", obs_point1))
+formula2 = toString(paste("category~lon+lat+mag+", obs_point1,"+",obs_point2))
+formula3 = toString(paste("category~lon+lat+mag+", obs_point1,"+",obs_point2,"+",obs_point3))
+#test_model = glm(category~lon+lat+mag+obs_point1, data = test_sample,family = binomial)
+origlnal_model = glm("category~lon+lat+mag",data = test_sample,family = binomial)
+test_model = glm(formula1, data = test_sample,family = binomial)
+test_model2 = glm(formula2, data = test_sample,family = binomial)
+test_model3 = glm(formula3, data = test_sample,family = binomial)
+
+
+#the accruacy and precision of test data.
+predicted = predict(test_model,type = "response")
+cate_predicted = cut(predicted, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+true = test_sample$category
+conf1 = confusionMatrix(cate_predicted,true)
+
+
+
+predicted2 = predict(test_model2,type = "response")
+cate_predicted2 = cut(predicted2, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+true = test_sample$category
+conf2 = confusionMatrix(cate_predicted2,true)
+
+
+predicted3 = predict(test_model3,type = "response")
+cate_predicted3 = cut(predicted3, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+true = test_sample$category
+conf3 = confusionMatrix(cate_predicted3,true)
+
+
+ s1 = unlist(strsplit(obs_point1, split='_', fixed=TRUE))[2]
+ colname = c()
+ 
+#anova test 
+test1 = anova(origlnal_model,test_model)
+if((1-pchisq(test1$Deviance[2],test1$Df[2]))<0.05){
+  s1 = unlist(strsplit(obs_point1, split='_', fixed=TRUE))[2]
+  accu = conf1$byClass[11]
+  sens = conf1$byClass[1]
+  spec = conf1$byClass[2]
+  datamessage1 = c(dateset$PntInfo[strtoi(s1),],accu,sens,spec)
+  observations = data.frame(obs_point1 = datamessage1)
+  colname=c(colname,obs_point1)
+  
+  
+}
+test2 = anova(test_model,test_model2)
+if((1-pchisq(test2$Deviance[2],test2$Df[2]))<0.05){
+  s2 = unlist(strsplit(obs_point2, split='_', fixed=TRUE))[2]
+  accu = conf2$byClass[11]
+  sens = conf2$byClass[1]
+  spec = conf2$byClass[2]
+  datamessage2 = c(dateset$PntInfo[strtoi(s2),],accu,sens,spec)
+  
+  observations$obs_point2 =datamessage2
+  colname=c(colname,obs_point2)
+  
+  
+}
+
+test3 = anova(test_model2,test_model3)
+if((1-pchisq(test3$Deviance[2],test3$Df[2]))<0.05){
+  accu = conf3$byClass[11]
+  sens = conf3$byClass[1]
+  spec = conf3$byClass[2]
+  s3 = unlist(strsplit(obs_point3, split='_', fixed=TRUE))[2]
+  datamessage3 = c(dateset$PntInfo[strtoi(s3),],accu,sens,spec)
+  observations$obs_point3 =datamessage3
+  colname=c(colname,obs_point3)
+  
+}
+
+
+
+colnames(observations) <- colname
+}
+```
+
+
+
+
+```{r}
+shit = list()
+for(i in 5){
+df = find_observations(100,5*i)
+shit[i] =df
+}
+```
+
+```{r}
+work =  find_observations(100,5)
+```
+
+
+```{r}
+#deal with the response variable.
+find_observations = function(threshold, time){
+
+
+#we might need multinomial distribution
+loss = dateset$TL1.HS
+dim(loss) = c(4000,1)
+lon = dateset$SCENARIO[,2,]
+dim(lon) = c(4000,1)
+lat = dateset$SCENARIO[,3,]
+dim(lat) = c(4000,1)
+mag = dateset$SCENARIO[,1,]
+dim(mag) = c(4000,1)
+mag_level = rep(1:8,each = 500)
+
+
+
+
+#set threshold
+#under the threshold of 50
+df = data.frame(loss)
+df$category = cut(df$loss,breaks =c(-Inf, threshold, Inf),labels = c(0,1))
+df$lon = lon
+df$lat = lat 
+df$mag = mag
+
+
+
+
+#try to fit the logistic regression interm of longituted 
+#the lat vs loss and the long vs loss
+
+
+
+
+
+#train test split.
+#we select the time = 60
+
+
+coln = c()
+set = (1:nrow(dateset$PntInfo))[dateset$PntInfo[,9]==3] 
+for(i in set){
+     observ_i = paste("observ",i,sep = "_")
+     coln = c(coln, observ_i)
+     matrix = apply(dateset$WHL1[1:time,i,,],c(2,3),function(x) max(x))
+     dim(matrix) = c(4000,1)
+     observ_i = matrix
+     df = cbind(df, observ_i)
+     
+}
+
+
+colnames(df)[6:98] = c(coln)
+
+
+newdf = df[,-1]
+
+
+
+
+set.seed(123)
+sample_size = floor(0.8*nrow(newdf))
+sample_inx = sample(1:nrow(newdf),size =sample_size,replace = FALSE)
+
+train_sample = newdf[sample_inx,]
+test_sample =newdf[-sample_inx,]
+
+
+# Set seed for reproducibility
+biggest = formula(glm(category~.,data = train_sample,family = binomial))
+null_model=glm(category~lon+lat+mag,data= train_sample,family=binomial)
+step_model = stepAIC(null_model, direction ="forward",scope = biggest,steps = 3)    
+
+
+#fitting model with test data 
+obs_point1 = names(step_model$model)[5]
+obs_point2 = names(step_model$model)[6]
+obs_point3 = names(step_model$model)[7]
+formula1 = toString(paste("category~lon+lat+mag+", obs_point1))
+formula2 = toString(paste("category~lon+lat+mag+", obs_point1,"+",obs_point2))
+formula3 = toString(paste("category~lon+lat+mag+", obs_point1,"+",obs_point2,"+",obs_point3))
+#test_model = glm(category~lon+lat+mag+obs_point1, data = test_sample,family = binomial)
+origlnal_model = glm("category~lon+lat+mag",data = test_sample,family = binomial)
+test_model = glm(formula1, data = test_sample,family = binomial)
+test_model2 = glm(formula2, data = test_sample,family = binomial)
+test_model3 = glm(formula3, data = test_sample,family = binomial)
+
+
+#the accruacy and precision of test data.
+predicted = predict(test_model,type = "response")
+cate_predicted = cut(predicted, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+true = test_sample$category
+conf1 = confusionMatrix(cate_predicted,true)
+
+
+
+predicted2 = predict(test_model2,type = "response")
+cate_predicted2 = cut(predicted2, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+true = test_sample$category
+conf2 = confusionMatrix(cate_predicted2,true)
+
+
+predicted3 = predict(test_model3,type = "response")
+cate_predicted3 = cut(predicted3, breaks =c(-Inf,0.5,Inf),labels = c(0,1))
+true = test_sample$category
+conf3 = confusionMatrix(cate_predicted3,true)
+
+
+ s1 = unlist(strsplit(obs_point1, split='_', fixed=TRUE))[2]
+ colname = c()
+ 
+#anova test 
+test1 = anova(origlnal_model,test_model)
+if((1-pchisq(test1$Deviance[2],test1$Df[2]))<0.05){
+  s1 = unlist(strsplit(obs_point1, split='_', fixed=TRUE))[2]
+  accu = conf1$byClass[11]
+  sens = conf1$byClass[1]
+  spec = conf1$byClass[2]
+  datamessage1 = c(dateset$PntInfo[strtoi(s1),],accu,sens,spec)
+  observations = data.frame(obs_point1 = datamessage1)
+  colname=c(colname,obs_point1)
+  
+  
+}
+test2 = anova(test_model,test_model2)
+if((1-pchisq(test2$Deviance[2],test2$Df[2]))<0.05){
+  s2 = unlist(strsplit(obs_point2, split='_', fixed=TRUE))[2]
+  accu = conf2$byClass[11]
+  sens = conf2$byClass[1]
+  spec = conf2$byClass[2]
+  datamessage2 = c(dateset$PntInfo[strtoi(s2),],accu,sens,spec)
+  
+  observations$obs_point2 =datamessage2
+  colname=c(colname,obs_point2)
+  
+  
+}
+
+test3 = anova(test_model2,test_model3)
+if((1-pchisq(test3$Deviance[2],test3$Df[2]))<0.05){
+  accu = conf3$byClass[11]
+  sens = conf3$byClass[1]
+  spec = conf3$byClass[2]
+  s3 = unlist(strsplit(obs_point3, split='_', fixed=TRUE))[2]
+  datamessage3 = c(dateset$PntInfo[strtoi(s3),],accu,sens,spec)
+  observations$obs_point3 =datamessage3
+  colname=c(colname,obs_point3)
+  
+}
+
+
+
+colnames(observations) <- colname
+return(observations)
+}
+```
+
+
+```{r}
+df1 = find_observations(20,5)
+df2 = find_observations(20,10)
+df3 = find_observations(20,15)
+df4 = find_observations(20,20)
+df5 = find_observations(20,25)
+df6 = find_observations(20,30)
+df7 = find_observations(20,35)
+df8 = find_observations(20,40)
+df9 = find_observations(20,45)
+df10 = find_observations(20,50)
+df11= find_observations(20,55)
+df12= find_observations(20,60)
+
+
+
+```
+
+```{r}
+finallist = list(df1,df2,df3,df4,df5,df6,df7,df8,df9,df10,df11,df12)
+map_data = matrix(ncol = 2)
+accrucy = c()
+sensitivity = c()
+specificity = c()
+for (i in 1:12){
+  dff = data.frame(finallist[i])
+  if(i == 1){
+    map_data = rbind(map_data, c(dff[7,1],dff[8,1]))
+    map_data = rbind(map_data, c(dff[7,2],dff[8,2]))
+    plot(1:2,c(dff[10,1],dff[10,2]),xlab= colnames(dff), ylab= "accuracy, sensitivity and specificity",type ="o",ylim =c(0.82,1),col = "red")
+    lines(1:2,c(dff[11,1],dff[11,2]),type ="o",col = "green")
+    lines(1:2,c(dff[12,1],dff[12,2]),type ="o",col = "blue")
+    text(1.9, 0.97, "accruracy", cex = .8)
+    text(1.9, 0.92, "sensitivity", cex = .8)
+    text(1.9, 0.88, "specificity", cex = .8)
+  }
+  
+  if (i != 1){
+    map_data = rbind(map_data, c(dff[7,1],dff[8,1]))
+    map_data = rbind(map_data, c(dff[7,2],dff[8,2]))
+    map_data = rbind(map_data,c(dff[7,3],dff[8,3]))
+    plot(1:3,c(dff[10,1],dff[10,2],dff[10,3]),xlab= colnames(dff),ylab="accuracy, sensitivity and specificity",type = "o",ylim =c(0.82,1),col = "red")
+    lines(1:3,c(dff[11,1],dff[11,2],dff[11,3]),type ="o",col = "green")
+    lines(1:3,c(dff[12,1],dff[12,2],dff[12,3]),type ="o",col = "blue")
+    text(2.9, 0.97, "accruracy", cex = .8)
+    text(2.9, 0.92, "sensitivity", cex = .8)
+    text(2.9, 0.88, "specificity", cex = .8)
+  }
+
+  
+  
+}
+map_data = map_data[-1,]
+map_data = data.frame(map_data)
+colnames(map_data) =c("lon","lat")
+```
+
+```{r}
+library(mapdata)
+library(ggplot2)
+library(ggfortify)
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+points(map_data$lat,map_data$lon, pch=19, col="red", cex=0.5)  #plot my sample sites
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[1])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[2])
+points(dff[8,],dff[7,], pch=19, col="red", cex=1.2)#plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[3])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[4])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[5])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[6])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[7])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[8])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[9])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[10])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[11])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+dff = data.frame(finallist[12])
+points(dff[8,],dff[7,], pch=19, col="red", cex=0.5)  #plot my sample sites
+text(dff[8,],dff[7,],labels = colnames(dff),cex =0.3)
+```
+
+
+
+```
+
+```{r}
+map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+points(map_data$lat,map_data$lon, pch=19, col="red", cex=0.5)  #plot my sample sites
+
+```
+```{r}
+for (i in 1:12){
+  map("worldHires","Japan" , col="gray90",xlim=c(120,150),ylim=c(30,50) ,fill=TRUE)
+  points(map_data$lat,map_data$lon, pch=19, col="red", cex=0.5)  #plot my sample sites
+  
+}
+```
+
